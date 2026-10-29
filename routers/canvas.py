@@ -156,12 +156,14 @@ def list_deleted_canvases() -> list:
     return sorted(records, key=lambda item: item["deleted_at"], reverse=True)
 
 def save_canvas(canvas: dict) -> None:
-    canvas["updated_at"] = now_ms()
     cleaned = re.sub(r"[^a-zA-Z0-9_-]", "", canvas.get("id") or "")
     filename = f"{cleaned}.json"
     target = canvas_path(canvas["id"])
     tmp_path = f"{target}.tmp"
     with CANVAS_LOCK:
+        # updated_at is also the optimistic concurrency version. Wall-clock
+        # collisions or clock rollback must not let a stale snapshot overwrite it.
+        canvas["updated_at"] = max(now_ms(), int(canvas.get("updated_at") or 0) + 1)
         with open(tmp_path, 'w', encoding='utf-8') as f:
             json.dump(canvas, f, ensure_ascii=False, indent=2)
         os.replace(tmp_path, target)

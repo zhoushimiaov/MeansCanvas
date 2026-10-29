@@ -467,6 +467,12 @@ async def safe_download_bytes(
                     if not location:
                         raise ValueError("重定向缺少 Location 头")
                     next_url = urllib.parse.urljoin(current_url, location)
+                    # Caller headers may contain provider-specific secrets. Never
+                    # forward them to a different scheme, host or effective port.
+                    source = httpx.URL(current_url)
+                    target = httpx.URL(next_url)
+                    if (source.scheme, source.host, source.port) != (target.scheme, target.host, target.port):
+                        default_headers = {"User-Agent": "Infinite-Canvas/SafeMediaFetcher/1.0"}
                     current_url = validate_safe_url(next_url, allow_private=allow_private, allowed_hosts=allowed_hosts, pin_dns=True)
                     try:
                         h = urllib.parse.urlsplit(current_url).hostname

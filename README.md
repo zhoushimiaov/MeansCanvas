@@ -1,5 +1,7 @@
 # 开卷画布 · MeansCanvas (原 Infinite-Canvas) - 有物建筑二次深度改造版
 
+2026-10-29 审查修复：媒体跨源重定向不再转发调用方凭据；画布保存版本在同毫秒及时间回拨时仍严格递增。[审查与验证记录](docs/Code_Review_2026-10-29.md)。
+
 > **最新版本 / Latest Version**: `v2026.10.04`  
 > **项目仓库**: [zhoushimiaov/MeansCanvas](https://github.com/zhoushimiaov/MeansCanvas)  
 > **维护团队**: [有物建筑 (MeansGroup)](https://means.group) · **开源原作者**: DX（wuli大雄）  
