@@ -723,8 +723,6 @@ async def wait_for_image_task(client, task_id, provider=None):
     extra = f"，最后响应：{raw_text}" if raw_text else ""
     raise HTTPException(status_code=504, detail=f"生图任务超时（已等待 {int(timeout)} 秒），task_id={task_id}{extra}")
 
-
-
 # --- Sliced from online.py lines 3517-3568 ---
 def normalize_local_image_path(value):
     text = str(value or "").strip().strip('"').strip("'")
@@ -749,6 +747,8 @@ def normalize_local_image_path(value):
     path = path.strip().strip('"').strip("'")
     if re.match(r"^/[a-zA-Z]:[\\/]", path):
         path = path[1:]
+    if re.match(r"^[a-zA-Z]:[\\/]", path) and os.name != "nt":
+        raise HTTPException(status_code=400, detail="只支持导入项目目录或已配置存储根内的本地图片")
     if re.match(r"^[a-zA-Z]:[\\/]", path) or (path.startswith("/") and os.name != "nt"):
         resolved = os.path.abspath(path)
     else:

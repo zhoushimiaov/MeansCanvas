@@ -52,6 +52,10 @@ def test_t10_normalize_local_image_path_boundary():
         normalize_local_image_path("C:/Windows/System32/notepad.exe")
     assert excinfo.value.status_code == 400
 
+    with pytest.raises(HTTPException) as excinfo_posix:
+        normalize_local_image_path("/etc/passwd")
+    assert excinfo_posix.value.status_code == 400
+
 def test_runninghub_upload_asset_blocks_private_url():
     """upload-asset 不得请求内网地址（真实网络行为验证，断言内网服务零连接）"""
     import socket
