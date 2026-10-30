@@ -1,7 +1,7 @@
 """Core smart mask synthesis and edit utilities for Reve-style image editing."""
 
 import io
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from PIL import Image, ImageDraw, ImageFilter
 
 # data: 内嵌图片的字符上限。base64 字符数 ~= 解码字节数 * 4/3，
@@ -99,6 +99,99 @@ def _full_canvas_mask(source_image_bytes: bytes) -> bytes:
     buf = io.BytesIO()
     mask.save(buf, format="PNG")
     return buf.getvalue()
+
+
+def decode_mask_data_url(
+    mask_data_url: str,
+    target_w: int,
+    target_h: int,
+    feather_radius: int = 12,
+) -> bytes:
+    """Decodes a base64 data:image/* mask URL into a (target_w, target_h) grayscale PNG mask."""
+    import base64
+
+    text = str(mask_data_url or "").strip()
+    if not text or not text.startswith("data:image/") or "," not in text:
+        return b""
+    if len(text) > MAX_DATA_URL_CHARS:
+        raise ValueError("蒙版数据过大")
+    _, b64 = text.split(",", 1)
+    raw = base64.b64decode(b64, validate=True)
+    target_w = max(1, int(target_w))
+    target_h = max(1, int(target_h))
+    with Image.open(io.BytesIO(raw)) as img:
+        # Support both RGBA (drawn on transparent canvas) and L/RGB masks
+        if "A" in img.getbands():
+            alpha = img.getchannel("A")
+            gray = img.convert("L")
+            # Take max of luminance and alpha so any painted stroke registers as white
+            mask = Image.fromarray(
+                bytes(max(g, a) for g, a in zip(gray.tobytes(), alpha.tobytes())),
+                mode="L",
+            ) if gray.size == alpha.size else alpha
+        else:
+            mask = img.convert("L")
+        if mask.size != (target_w, target_h):
+            mask = mask.resize((target_w, target_h), Image.Resampling.BILINEAR)
+        # Binarize stroke core before feathering so semi-transparent brush strokes become solid 255 inside
+        mask = mask.point(lambda p: 255 if p >= 32 else 0)
+        if feather_radius and int(feather_radius) > 0:
+            mask = mask.filter(ImageFilter.GaussianBlur(radius=min(64, int(feather_radius))))
+    buf = io.BytesIO()
+    mask.save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def mask_bounding_box(mask_png_bytes: bytes) -> Optional[Dict[str, int]]:
+    """Returns {'x', 'y', 'width', 'height'} of the non-zero region in a grayscale mask PNG."""
+    if not mask_png_bytes:
+        return None
+    with Image.open(io.BytesIO(mask_png_bytes)) as m:
+        gray = m.convert("L")
+        binary = gray.point(lambda p: 255 if p >= 16 else 0)
+        bbox = binary.getbbox()
+        if not bbox:
+            return None
+        x0, y0, x1, y1 = bbox
+        return {"x": int(x0), "y": int(y0), "width": max(1, int(x1 - x0)), "height": max(1, int(y1 - y0))}
+
+
+def annotate_visual_region_guide(source_image_bytes: bytes, mask_png_bytes: bytes) -> bytes:
+    """Draws a 2px high-contrast coral rectangle around the mask bbox to guide instruction models."""
+    bbox = mask_bounding_box(mask_png_bytes)
+    if not bbox:
+        return source_image_bytes
+    with Image.open(io.BytesIO(source_image_bytes)) as src:
+        canvas = src.convert("RGBA")
+        draw = ImageDraw.Draw(canvas)
+        x0, y0 = bbox["x"], bbox["y"]
+        x1, y1 = min(canvas.width - 1, x0 + bbox["width"]), min(canvas.height - 1, y0 + bbox["height"])
+        for offset in range(2):
+            draw.rectangle(
+                [max(0, x0 - offset), max(0, y0 - offset), min(canvas.width - 1, x1 + offset), min(canvas.height - 1, y1 + offset)],
+                outline=(255, 90, 54, 255),
+            )
+        buf = io.BytesIO()
+        canvas.convert("RGB").save(buf, format="PNG")
+        return buf.getvalue()
+
+
+def composite_regional_edit(orig_bytes: bytes, edited_bytes: bytes, mask_png_bytes: bytes) -> bytes:
+    """Alpha-composites edited_bytes inside mask_png_bytes onto orig_bytes, locking outside pixels."""
+    if not mask_png_bytes:
+        return edited_bytes
+    with Image.open(io.BytesIO(orig_bytes)) as orig_im, Image.open(io.BytesIO(edited_bytes)) as edit_im, Image.open(io.BytesIO(mask_png_bytes)) as mask_im:
+        orig_rgba = orig_im.convert("RGBA")
+        edit_rgba = edit_im.convert("RGBA")
+        if edit_rgba.size != orig_rgba.size:
+            edit_rgba = edit_rgba.resize(orig_rgba.size, Image.Resampling.LANCZOS)
+        mask_l = mask_im.convert("L")
+        if mask_l.size != orig_rgba.size:
+            mask_l = mask_l.resize(orig_rgba.size, Image.Resampling.BILINEAR)
+        merged = Image.composite(edit_rgba, orig_rgba, mask_l)
+        buf = io.BytesIO()
+        merged.convert("RGB").save(buf, format="PNG")
+        return buf.getvalue()
 
 
 def build_edit_prompt_with_region(
@@ -264,7 +357,11 @@ def save_output_image_bytes(data: bytes, filename_prefix: str = "reve") -> str:
     return f"/output/{filename}"
 
 
-async def execute_canvas_edit(payload: Dict[str, Any], history_saver=None) -> Dict[str, Any]:
+async def execute_canvas_edit(
+    payload: Dict[str, Any],
+    history_saver=None,
+    cloud_dispatcher=None,
+) -> Dict[str, Any]:
     """Orchestrates Reve-style canvas image editing across cloud providers."""
     import os
     import io
@@ -285,34 +382,43 @@ async def execute_canvas_edit(payload: Dict[str, Any], history_saver=None) -> Di
     if not source_url:
         raise HTTPException(status_code=400, detail="缺少源图片地址")
 
-    # Load source image bytes
-    if source_url.startswith(("http://", "https://")):
-        try:
-            validate_safe_url(source_url, allow_private=False)
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc))
-        from core.security import safe_download_bytes
-        img_bytes, _ = await safe_download_bytes(source_url)
-    elif source_url.startswith("data:image/"):
-        import base64
-        # 该分支不受 safe_download_bytes 的 50MB 上限保护，需自行设限，
-        # 否则超大 base64 会在内存中物化两份（解码 + 重新编码发往上游）。
-        if len(source_url) > MAX_DATA_URL_CHARS:
-            raise HTTPException(status_code=413, detail="内嵌图片过大")
-        if "," not in source_url:
-            raise HTTPException(status_code=400, detail="内嵌图片格式非法：缺少 base64 数据段")
-        _, b64 = source_url.split(",", 1)
-        try:
-            img_bytes = base64.b64decode(b64, validate=True)
-        except Exception as exc:
-            raise HTTPException(status_code=400, detail=f"内嵌图片 base64 解码失败: {exc}")
-    else:
-        from core.media import output_file_from_url
-        local_p = output_file_from_url(source_url)
-        if not local_p or not os.path.isfile(local_p):
-            raise HTTPException(status_code=400, detail=f"找不到本地图片: {source_url}")
-        with open(local_p, "rb") as f:
-            img_bytes = f.read()
+    feather_radius = max(0, min(64, int(payload.get("feather_radius", 12) or 12)))
+    preserve_outside = bool(payload.get("preserve_outside", True))
+
+    async def _fetch_img_bytes(target_str: str) -> bytes:
+        target_str = str(target_str or "").strip()
+        if not target_str:
+            return b""
+        if target_str.startswith(("http://", "https://")):
+            try:
+                validate_safe_url(target_str, allow_private=False)
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc))
+            from core.security import safe_download_bytes
+            b, _ = await safe_download_bytes(target_str)
+            return b
+        elif target_str.startswith("data:image/"):
+            import base64
+            # 该分支不受 safe_download_bytes 的 50MB 上限保护，需自行设限，
+            # 否则超大 base64 会在内存中物化两份（解码 + 重新编码发往上游）。
+            if len(target_str) > MAX_DATA_URL_CHARS:
+                raise HTTPException(status_code=413, detail="内嵌图片过大")
+            if "," not in target_str:
+                raise HTTPException(status_code=400, detail="内嵌图片格式非法：缺少 base64 数据段")
+            _, b64 = target_str.split(",", 1)
+            try:
+                return base64.b64decode(b64, validate=True)
+            except Exception as exc:
+                raise HTTPException(status_code=400, detail=f"内嵌图片 base64 解码失败: {exc}")
+        else:
+            from core.media import output_file_from_url
+            local_p = output_file_from_url(target_str)
+            if not local_p or not os.path.isfile(local_p):
+                raise HTTPException(status_code=400, detail=f"找不到本地图片: {target_str}")
+            with open(local_p, "rb") as f:
+                return f.read()
+
+    img_bytes = await _fetch_img_bytes(source_url)
 
     try:
         with Image.open(io.BytesIO(img_bytes)) as pil_img:
@@ -321,9 +427,37 @@ async def execute_canvas_edit(payload: Dict[str, Any], history_saver=None) -> Di
         raise HTTPException(status_code=400, detail=f"无法解析图片数据: {e}")
 
     region = payload.get("region")
+    mask_data_url = payload.get("mask_data_url")
     mask_bytes = None
-    if region and isinstance(region, dict):
-        mask_bytes = await asyncio.to_thread(synthesize_feathered_mask, orig_w, orig_h, region)
+    if mask_data_url:
+        try:
+            mask_bytes = await asyncio.to_thread(
+                decode_mask_data_url, mask_data_url, orig_w, orig_h, feather_radius
+            )
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"蒙版解析失败: {e}")
+        if not region:
+            region = mask_bounding_box(mask_bytes)
+    elif region and isinstance(region, dict):
+        mask_bytes = await asyncio.to_thread(
+            synthesize_feathered_mask, orig_w, orig_h, region, feather_radius
+        )
+        if not region:
+            region = mask_bounding_box(mask_bytes)
+
+    ref_bytes_list: list[bytes] = []
+    ref_url = str(payload.get("reference_image_url") or "").strip()
+    if ref_url:
+        try:
+            rb = await _fetch_img_bytes(ref_url)
+            if rb:
+                ref_bytes_list.append(rb)
+        except Exception:
+            pass
+
+    effective_prompt = prompt
+    if ref_bytes_list:
+        effective_prompt = f"{prompt} [同时参考附加的局部参考图主体特征与材质进行融合替换]"
 
     pid = str(payload.get("provider_id") or "").strip()
     req_model = str(payload.get("model") or "").strip()
@@ -365,10 +499,53 @@ async def execute_canvas_edit(payload: Dict[str, Any], history_saver=None) -> Di
         models = provider.get("image_models") or []
         model = models[0] if models else "qwen-image-edit"
 
+    proto = str((provider or {}).get("protocol") or (provider or {}).get("id") or "").lower()
+    pid = str((provider or {}).get("id") or "").lower()
+    multi_proto = {"codex", "gemini-cli", "jimeng", "volcengine", "runninghub", "apimart", "pollinations", "gemini"}
+
+    task_id = f"reve_{int(time.time())}_{uuid.uuid4().hex[:8]}"
+
+    if callable(cloud_dispatcher) and (proto in multi_proto or pid in multi_proto or pid == "modelscope"):
+        augmented_prompt = build_edit_prompt_with_region(effective_prompt, region, orig_w, orig_h)
+        guide_src = annotate_visual_region_guide(img_bytes, mask_bytes) if mask_bytes else img_bytes
+        out_bytes = await cloud_dispatcher({
+            "provider": provider,
+            "model": model,
+            "prompt": augmented_prompt,
+            "source_image_bytes": guide_src,
+            "raw_source_image_bytes": img_bytes,
+            "mask_bytes": mask_bytes,
+            "reference_images_bytes": ref_bytes_list,
+            "orig_w": orig_w,
+            "orig_h": orig_h,
+        })
+        if preserve_outside and mask_bytes:
+            out_bytes = await asyncio.to_thread(composite_regional_edit, img_bytes, out_bytes, mask_bytes)
+        output_url = save_output_image_bytes(out_bytes)
+        if callable(history_saver):
+            try:
+                history_saver({
+                    "type": "image",
+                    "source": f"reve-edit:{provider.get('id', '')}/{model}",
+                    "prompt": prompt,
+                    "images": [output_url],
+                    "image_urls": [output_url],
+                    "model": model,
+                    "provider": provider.get("id", ""),
+                })
+            except Exception:
+                pass
+        return {
+            "output_url": output_url,
+            "task_id": task_id,
+            "model": model,
+            "provider_id": provider.get("id", "default"),
+        }
+
     edit_spec = prepare_reve_edit_payload(
         provider=provider,
         model=model,
-        prompt=prompt,
+        prompt=effective_prompt,
         source_image_bytes=img_bytes,
         mask_bytes=mask_bytes,
         region=region,
@@ -481,7 +658,7 @@ async def execute_canvas_edit(payload: Dict[str, Any], history_saver=None) -> Di
         if not ready:
             raise HTTPException(status_code=504, detail="BFL 局部修图任务超时")
 
-    output_url = ""
+    out_bytes: Optional[bytes] = None
     if isinstance(raw, dict):
         data_list = raw.get("data")
         if isinstance(data_list, list) and len(data_list) > 0:
@@ -490,7 +667,6 @@ async def execute_canvas_edit(payload: Dict[str, Any], history_saver=None) -> Di
                 if first.get("b64_json"):
                     import base64
                     out_bytes = base64.b64decode(first["b64_json"])
-                    output_url = save_output_image_bytes(out_bytes)
                 elif first.get("url"):
                     img_url = first["url"]
                     try:
@@ -499,7 +675,6 @@ async def execute_canvas_edit(payload: Dict[str, Any], history_saver=None) -> Di
                         raise HTTPException(status_code=400, detail=str(exc))
                     from core.security import safe_download_bytes
                     out_bytes, _ = await safe_download_bytes(img_url)
-                    output_url = save_output_image_bytes(out_bytes)
         elif raw.get("images") and isinstance(raw["images"], list) and len(raw["images"]) > 0:
             first_img = raw["images"][0]
             if isinstance(first_img, str) and first_img.startswith(("http://", "https://")):
@@ -509,7 +684,6 @@ async def execute_canvas_edit(payload: Dict[str, Any], history_saver=None) -> Di
                     raise HTTPException(status_code=400, detail=str(exc))
                 from core.security import safe_download_bytes
                 out_bytes, _ = await safe_download_bytes(first_img)
-                output_url = save_output_image_bytes(out_bytes)
             elif isinstance(first_img, dict):
                 if first_img.get("url"):
                     img_url = first_img["url"]
@@ -519,11 +693,9 @@ async def execute_canvas_edit(payload: Dict[str, Any], history_saver=None) -> Di
                         raise HTTPException(status_code=400, detail=str(exc))
                     from core.security import safe_download_bytes
                     out_bytes, _ = await safe_download_bytes(img_url)
-                    output_url = save_output_image_bytes(out_bytes)
                 elif first_img.get("b64_json"):
                     import base64
                     out_bytes = base64.b64decode(first_img["b64_json"])
-                    output_url = save_output_image_bytes(out_bytes)
         elif raw.get("output"):
             out_val = raw["output"]
             if isinstance(out_val, list) and len(out_val) > 0:
@@ -535,7 +707,6 @@ async def execute_canvas_edit(payload: Dict[str, Any], history_saver=None) -> Di
                     raise HTTPException(status_code=400, detail=str(exc))
                 from core.security import safe_download_bytes
                 out_bytes, _ = await safe_download_bytes(out_val)
-                output_url = save_output_image_bytes(out_bytes)
         elif isinstance(raw.get("result"), dict) and raw["result"].get("sample"):
             sample_url = raw["result"]["sample"]
             try:
@@ -544,16 +715,24 @@ async def execute_canvas_edit(payload: Dict[str, Any], history_saver=None) -> Di
                 raise HTTPException(status_code=400, detail=str(exc))
             from core.security import safe_download_bytes
             out_bytes, _ = await safe_download_bytes(sample_url)
-            output_url = save_output_image_bytes(out_bytes)
 
-    if not output_url and isinstance(raw, dict) and isinstance(raw.get("url"), str)             and raw["url"].startswith(("http://", "https://")):
+    if not out_bytes and isinstance(raw, dict) and isinstance(raw.get("url"), str) and raw["url"].startswith(("http://", "https://")):
         try:
             validate_safe_url(raw["url"], allow_private=False)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc))
         from core.security import safe_download_bytes
         out_bytes, _ = await safe_download_bytes(raw["url"])
-        output_url = save_output_image_bytes(out_bytes)
+
+    if not out_bytes:
+        # 上游返回了无法识别的结构。此处过去会回退到一个从未写盘的
+        # /output/{task_id}.png 并当作成功返回，前端会把永久破图标记为"完成"。
+        raise HTTPException(status_code=502, detail="上游未返回可用图片")
+
+    if preserve_outside and mask_bytes:
+        out_bytes = await asyncio.to_thread(composite_regional_edit, img_bytes, out_bytes, mask_bytes)
+
+    output_url = save_output_image_bytes(out_bytes)
 
     if not output_url:
         # 上游返回了无法识别的结构。此处过去会回退到一个从未写盘的

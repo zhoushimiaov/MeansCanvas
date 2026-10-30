@@ -292,8 +292,6 @@ async def yuli_fetch_reference_bytes(client, ref_url):
         return (f"input_reference.{ext}", raw, mime)
     return None
 
-
-# --- Sliced from online.py lines 564-575 ---
 def modelscope_size(value, fallback="1024x1024"):
     size = str(value or fallback).strip().lower().replace("*", "x")
     if re.fullmatch(r"\d{2,5}x\d{2,5}", size):
@@ -306,9 +304,6 @@ def unwrap_apimart_response(raw):
         return raw["data"]
     return raw
 
-
-
-# --- Sliced from online.py lines 914-1117 ---
 def responses_image_size_instruction(size: str) -> str:
     """RS 中转多为网页版逆向：结构化 size 参数（tool.size / 顶层 size / --size 尾注）全被无视，
     只有内部模型能“听懂”的自然语言比例要求有效（实测中文明确说横版+比例+禁止正方形可让
@@ -513,9 +508,6 @@ async def post_openai_responses(client, upstream_url, headers, body):
             return _responses_wrap(upstream_url, 502, data)
     return _responses_wrap(upstream_url, 502, {"error": {"message": f"RS 后台任务超过 {int(RESPONSES_POLL_MAX_SECONDS)}s 仍未完成（任务 id={rid}）"}})
 
-
-
-# --- Sliced from online.py lines 1299-1408 ---
 def is_tudou_async_image_mode(provider, model=""):
     return (
         normalize_image_request_mode((provider or {}).get("image_request_mode")) == "tudou-async"
@@ -626,9 +618,6 @@ async def generate_tudou_async_image(prompt, size, quality, model, reference_ima
         result = await wait_for_image_task(client, task_id, provider)
         return extract_image(result), result
 
-
-
-# --- Sliced from online.py lines 3424-3513 ---
 def image_task_url_for_provider(provider, task_id):
     base_url = (provider.get("base_url") if provider else AI_BASE_URL).rstrip("/")
     provider_id = str((provider or {}).get("id") or "").lower()
@@ -722,8 +711,6 @@ async def wait_for_image_task(client, task_id, provider=None):
     raw_text = json.dumps(last_payload, ensure_ascii=False)[:800] if last_payload else ""
     extra = f"，最后响应：{raw_text}" if raw_text else ""
     raise HTTPException(status_code=504, detail=f"生图任务超时（已等待 {int(timeout)} 秒），task_id={task_id}{extra}")
-
-# --- Sliced from online.py lines 3517-3568 ---
 def normalize_local_image_path(value):
     text = str(value or "").strip().strip('"').strip("'")
     if not text:
@@ -800,9 +787,6 @@ def import_local_image_file(path):
         raise HTTPException(status_code=500, detail="导入本地图片失败")
     return {"url": output_url_for(filename, "input"), "name": os.path.basename(path) or filename, "kind": "image"}
 
-
-
-# --- Sliced from online.py lines 4146-4152 ---
 def modelscope_image_url(value, max_size=1536):
     if not value:
         return value
@@ -810,9 +794,6 @@ def modelscope_image_url(value, max_size=1536):
         return reference_to_data_url({"url": value}, max_size=max_size)
     return value
 
-
-
-# --- Sliced from online.py lines 5072-5245 ---
 def chat_prompt_size_override(message, current_size=""):
     text = str(message or "")
     direct = re.search(r"(?<!\d)([1-9]\d{2,4})\s*[xX×*]\s*([1-9]\d{2,4})(?!\d)", text)
@@ -987,9 +968,6 @@ def normalize_volcengine_size(size, model=""):
             break
     return f"{snapped_w}x{snapped_h}"
 
-
-
-# --- Sliced from online.py lines 5328-5388 ---
 async def generate_modelscope_provider_image(prompt, size, model, reference_images=None, provider=None):
     clean_token = modelscope_api_key()
     if not clean_token:
@@ -1051,9 +1029,6 @@ async def generate_modelscope_provider_image(prompt, size, model, reference_imag
                 raise HTTPException(status_code=502, detail=f"ModelScope 任务失败：{detail}")
         raise HTTPException(status_code=504, detail=f"ModelScope 生图任务超时：{last_payload}")
 
-
-
-# --- Sliced from online.py lines 5389-5445 ---
 def gemini_model_name(model):
     value = selected_model(model, "gemini-3-pro-image-preview").strip()
     return value[len("models/"):] if value.startswith("models/") else value
@@ -1110,8 +1085,6 @@ async def generate_gemini_provider_image(prompt, size, model, reference_images=N
         # image extraction so candidates[].content.parts[].inlineData is visible.
         raw = unwrap_apimart_response(response.json()) if is_apimart_provider(provider) else response.json()
         return extract_image(raw), raw
-
-
 
 async def generate_pollinations_provider_image(prompt, size, model, reference_images, provider):
     """Pollinations: GET https://image.pollinations.ai/prompt/{prompt}
@@ -1193,9 +1166,6 @@ async def generate_pollinations_provider_image(prompt, size, model, reference_im
     }
     return image_data, raw
 
-
-
-# --- Sliced from online.py lines 6664-6907 ---
 async def generate_ai_image(prompt, size, quality, model, reference_images=None, provider_id="comfly", aspect_ratio="", resolution=""):
     provider = get_api_provider(provider_id)
     if is_tudou_provider(provider):
@@ -1442,9 +1412,6 @@ async def generate_ai_image(prompt, size, quality, model, reference_images=None,
             setattr(exc, "upstream_task_id", task_id)
             raise
 
-
-
-# --- Sliced from online.py lines 7252-7425 ---
 @router.post("/api/upload")
 async def upload_image(files: List[UploadFile] = File(...)):
     uploaded_files = []
@@ -1529,7 +1496,6 @@ def slim_image_bytes(data: bytes, filename: str = ""):
     except Exception as exc:  # noqa: BLE001
         logger.warning(f"image slim failed, keep original: {exc}")
         return data, None
-
 
 @router.post("/api/ai/upload")
 async def upload_ai_reference(files: List[UploadFile] = File(...)):
@@ -1633,17 +1599,11 @@ async def upload_ai_base64(payload: Base64UploadRequest):
     url = output_url_for(filename, "input")
     return {"url": url, "files": [{"url": url, "name": payload.name or filename, "kind": kind}]}
 
-
-
-# --- Sliced from online.py lines 7430-7434 ---
 @router.post("/api/temp-sh/upload")
 async def temp_sh_upload(payload: TempShUploadRequest, request: Request):
     ensure_same_origin_request(request)
     return await upload_local_video_to_cloud(payload.url, "auto")
 
-
-
-# --- Sliced from online.py lines 7440-7449 ---
 @router.post("/api/ai/import-local-image")
 async def import_local_ai_reference(payload: LocalImageImportRequest, request: Request):
     ensure_same_origin_request(request)
@@ -1654,9 +1614,6 @@ async def import_local_ai_reference(payload: LocalImageImportRequest, request: R
         raise HTTPException(status_code=400, detail="没有可导入的本地图片")
     return {"files": [import_local_image_file(normalize_local_image_path(path)) for path in requested]}
 
-
-
-# --- Sliced from online.py lines 8970-9071 ---
 async def build_online_image_result(payload: OnlineImageRequest):
     provider = get_api_provider(payload.provider_id)
     default_model = (provider.get("image_models") or [IMAGE_MODEL])[0]
@@ -1761,9 +1718,6 @@ async def online_image(payload: OnlineImageRequest):
         logger.warning(f'task record failed: {exc}')
     return result
 
-
-
-# --- Sliced from online.py lines 9112-9208 ---
 def _meigen_aspect_from_size(size):
     """'1024x1024' -> '1:1'; '1344x768' -> closest supported ratio."""
     try:
@@ -1776,7 +1730,6 @@ def _meigen_aspect_from_size(size):
                   "3:4": 3 / 4, "3:2": 3 / 2, "2:3": 2 / 3, "21:9": 21 / 9, "2.35:1": 2.35}
     ratio = width / height
     return min(candidates.items(), key=lambda kv: abs(kv[1] - ratio))[0]
-
 
 async def generate_meigen_image(payload, provider):
     """MeiGen Cloud image generation via MCP tools/call generate_image.
@@ -1868,8 +1821,6 @@ async def generate_meigen_image(payload, provider):
             raise HTTPException(status_code=502, detail=f"下载 MeiGen 图片失败: {e}")
     return image_urls
 
-
-# --- Sliced from online.py lines 9295-9364 ---
 async def generate_pollinations_image(payload, provider):
     """Pollinations: GET https://image.pollinations.ai/prompt/{prompt}
     ?model=flux&width=&height=&seed=&nologo=true  (anonymous tier, no key).
@@ -1880,7 +1831,6 @@ async def generate_pollinations_image(payload, provider):
     )
     url_out = await save_ai_image_to_output(image_data, prefix="pollinations_")
     return {"images": [url_out], "image_urls": [url_out], "task_id": raw.get("id", f"poll-{uuid.uuid4().hex[:8]}"), "raw": raw}
-
 
 async def _online_image_dispatch(payload):
     if is_pollinations_provider(payload.provider_id):
@@ -1910,8 +1860,6 @@ async def _online_image_dispatch(payload):
         }
     return await build_online_image_result(payload)
 
-
-# --- Sliced from online.py lines 9383-9843 ---
 def apimart_midjourney_provider(provider_id: str):
     provider = get_api_provider_exact(provider_id)
     if not is_apimart_provider(provider):
@@ -2438,9 +2386,6 @@ async def get_canvas_image_task(task_id: str):
         raise HTTPException(status_code=404, detail="画布任务不存在，可能服务已重启或任务已过期")
     return task
 
-
-
-# --- Sliced from online.py lines 9847-9916 ---
 IMAGE_PARAM_RATIOS = [
     {"value": "1:1", "label": "1:1"},
     {"value": "3:4", "label": "3:4"},
@@ -2511,9 +2456,6 @@ async def image_params(provider_id: str = "", model: str = ""):
         "fields": build_image_param_fields(engine, provider, model),
     }
 
-
-
-# --- Sliced from online.py lines 10639-10718 ---
 def tudou_grok_image_size(size, aspect_ratio=""):
     value = str(size or "").strip().lower().replace("*", "x").replace("×", "x")
     if value in TUDOU_GROK_IMAGE_SIZES:
@@ -2594,8 +2536,6 @@ async def generate_tudou_grok_image(prompt, size, model, reference_images, provi
         raise HTTPException(status_code=502, detail=f"土豆 Grok 图像接口没有返回图片：{str(raw)[:400]}")
     return images[0], raw
 
-
-
 async def _safe_download_image_to_local(img_url: str, filename_prefix: str = "cloud_angle_") -> str:
     if not img_url:
         return ""
@@ -2619,8 +2559,6 @@ async def _safe_download_image_to_local(img_url: str, filename_prefix: str = "cl
         logger.warning(f"下载上游图片失败: {e}; url={img_url}")
         return img_url
 
-
-# --- Sliced from online.py lines 12181-12538 ---
 @router.post("/api/angle/poll_status")
 async def poll_angle_cloud(req: CloudPollRequest):
     api_root = modelscope_image_api_root()
@@ -2925,13 +2863,54 @@ async def ms_generate(req: MsGenerateRequest):
         logger.warning(f"MS generate error: {e}")
         raise HTTPException(status_code=400, detail=str(e))
 
-
 class CanvasEditRequest(BaseModel):
     source_image_url: str
     prompt: str
     provider_id: Optional[str] = None
     model: Optional[str] = None
     region: Optional[Dict[str, Any]] = None
+    mask_data_url: Optional[str] = None
+    reference_image_url: Optional[str] = None
+    feather_radius: Optional[int] = 12
+    preserve_outside: Optional[bool] = True
+
+
+async def _dispatch_cloud_edit(spec: dict) -> bytes:
+    import base64
+    from core.media import output_file_from_url
+    from core.security import safe_download_bytes
+    src_bytes = spec.get("source_image_bytes") or spec.get("raw_source_image_bytes") or b""
+    src_b64 = "data:image/png;base64," + base64.b64encode(src_bytes).decode("ascii")
+    refs = [AIReference(url=src_b64, role="reference")]
+    for ref_b in (spec.get("reference_images_bytes") or []):
+        if ref_b:
+            refs.append(AIReference(url="data:image/png;base64," + base64.b64encode(ref_b).decode("ascii"), role="reference"))
+    gen_req = OnlineImageRequest(
+        prompt=spec["prompt"],
+        provider_id=(spec.get("provider") or {}).get("id", "gemini"),
+        model=spec.get("model", ""),
+        reference_images=refs,
+    )
+    res = await _online_image_dispatch(gen_req)
+    urls = []
+    if isinstance(res, dict):
+        urls = res.get("image_urls") or res.get("urls") or res.get("images") or []
+        if isinstance(urls, str):
+            urls = [urls]
+        if not urls and res.get("url"):
+            urls = [res["url"]]
+    if not urls:
+        raise HTTPException(status_code=502, detail="云端生图分发未返回图片")
+    out_url = urls[0]
+    if out_url.startswith(("http://", "https://")):
+        validate_safe_url(out_url, allow_private=False)
+        dl_bytes, _ = await safe_download_bytes(out_url)
+        return dl_bytes
+    local_p = output_file_from_url(out_url)
+    if not local_p or not os.path.isfile(local_p):
+        raise HTTPException(status_code=502, detail=f"无法定位生图输出文件: {out_url}")
+    with open(local_p, "rb") as f:
+        return f.read()
 
 
 @router.post("/api/canvas-edit")
@@ -2947,4 +2926,8 @@ async def api_canvas_edit(payload: CanvasEditRequest):
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc))
     from core.image_edit import execute_canvas_edit
-    return await execute_canvas_edit(payload.model_dump(), history_saver=save_to_history)
+    return await execute_canvas_edit(
+        payload.model_dump(),
+        history_saver=save_to_history,
+        cloud_dispatcher=_dispatch_cloud_edit,
+    )
