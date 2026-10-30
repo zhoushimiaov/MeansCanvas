@@ -323,3 +323,74 @@ test('smart-canvas.js: saves are serialised and failures are surfaced (audit F03
   assert.deepEqual(toasts, ['smart.toastSaveFailed'], 'failure must be shown to the user');
   env.stop();
 });
+
+test('canvas-reve: multi-node target resolution and regional edit payload generation', async () => {
+  const reveJs = fs.readFileSync('static/js/canvas-reve.js', 'utf-8');
+  assert.ok(reveJs.includes('resolveNodeTarget'), 'resolveNodeTarget helper should exist');
+
+  const mockWindow = {
+    addEventListener: () => {},
+    document: {
+      addEventListener: () => {},
+      createElement: () => ({ style: {}, classList: { add: () => {}, remove: () => {} }, appendChild: () => {} }),
+      body: { appendChild: () => {} },
+      querySelector: () => null,
+    },
+    nodes: [
+      { id: 'img1', type: 'image', url: '/output/1.png' },
+      { id: 'out1', type: 'output', selectedOutputUrl: '/output/2.png' },
+      { id: 'smart1', type: 'smart-image', images: [{ url: '/output/3.png' }] },
+    ],
+  };
+
+  const initReve = new Function('window', 'document', `${reveJs}; return window.CanvasReve;`);
+  const CanvasReve = initReve(mockWindow, mockWindow.document);
+
+  // 1. Multi-node resolution
+  const t1 = CanvasReve.resolveNodeTarget('img1');
+  assert.equal(t1?.url, '/output/1.png');
+  assert.equal(t1?.kind, 'classic-image');
+
+  const t2 = CanvasReve.resolveNodeTarget('out1');
+  assert.equal(t2?.url, '/output/2.png');
+  assert.equal(t2?.kind, 'classic-output');
+
+  const t3 = CanvasReve.resolveNodeTarget('smart1');
+  assert.equal(t3?.url, '/output/3.png');
+  assert.equal(t3?.kind, 'smart-image');
+
+  // 2. Build edit payload & inplace vs new mode
+  let fetchBody = null;
+  let undoPushed = 0;
+  mockWindow.fetch = async (url, opts) => {
+    fetchBody = JSON.parse(opts.body);
+    return { ok: true, json: async () => ({ output_url: '/output/edited.png' }) };
+  };
+  mockWindow.pushUndo = () => { undoPushed++; };
+  mockWindow.render = () => {};
+  mockWindow.scheduleSave = () => {};
+
+  CanvasReve.activeNodeId = 'img1';
+  CanvasReve.applyMode = 'inplace';
+  CanvasReve.featherRadius = 16;
+  CanvasReve.referenceImageUrl = 'data:image/png;base64,ref123';
+  CanvasReve.exportMaskDataUrl = () => 'data:image/png;base64,mask123';
+
+  // mock barEl prompt input & model select
+  CanvasReve.barEl = {
+    querySelector: (sel) => {
+      if (sel === '#revePromptInput') return { value: 'Inpainting test' };
+      if (sel === '#reveModelSelect') return { value: 'gemini-2.5-flash-image', selectedOptions: [{ dataset: { provider: 'gemini-cli' } }] };
+      return null;
+    },
+    remove: () => {},
+  };
+
+  await CanvasReve.submit();
+  assert.equal(undoPushed, 1, 'In-place edit must push undo snapshot');
+  assert.equal(fetchBody.mask_data_url, 'data:image/png;base64,mask123');
+  assert.equal(fetchBody.reference_image_url, 'data:image/png;base64,ref123');
+  assert.equal(fetchBody.feather_radius, 16);
+  assert.equal(fetchBody.preserve_outside, true);
+  assert.equal(mockWindow.nodes[0].url, '/output/edited.png', 'In-place mode must update source node url');
+});

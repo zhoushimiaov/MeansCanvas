@@ -3891,7 +3891,16 @@ html[data-studio-scale="off"].studio-scale-managed .toolbar.scale-expanded .tool
 .theme-light .reve-model-select { border-color: #cbd5e1; color: #334155; }
 .theme-warm .reve-model-select { border-color: #e8e0d5; color: #574e45; }
 .reve-bbox-overlay { position: absolute; inset: 0; z-index: 25; cursor: crosshair; user-select: none; }
-.reve-bbox-rect { position: absolute; border: 2px dashed var(--accent, #c97b5a); background: rgba(201, 123, 90, 0.16); box-sizing: border-box; pointer-events: none; border-radius: 2px; }
+.reve-mask-canvas { position: absolute; inset: 0; pointer-events: none; width: 100%; height: 100%; z-index: 26; }
+.reve-bbox-rect { position: absolute; border: 2px dashed var(--accent, #c97b5a); background: rgba(201, 123, 90, 0.16); box-sizing: border-box; border-radius: 2px; z-index: 27; }
+.reve-resize-handle { position: absolute; width: 8px; height: 8px; background: #ffffff; border: 1.5px solid var(--accent, #c97b5a); border-radius: 2px; pointer-events: auto; }
+.reve-resize-handle.nw { top: -4px; left: -4px; cursor: nwse-resize; }
+.reve-resize-handle.ne { top: -4px; right: -4px; cursor: nesw-resize; }
+.reve-resize-handle.se { bottom: -4px; right: -4px; cursor: nwse-resize; }
+.reve-resize-handle.sw { bottom: -4px; left: -4px; cursor: nesw-resize; }
+.reve-ref-thumb { width: 22px; height: 22px; border-radius: 4px; object-fit: cover; border: 1px solid var(--accent, #c97b5a); cursor: pointer; }
+.reve-slider-pill { display: flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 500; color: #94a3b8; padding: 0 4px; }
+.reve-slider-pill input[type="range"] { width: 48px; height: 4px; accent-color: var(--accent, #c97b5a); cursor: pointer; }
 
 
 

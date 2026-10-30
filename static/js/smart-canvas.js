@@ -8265,6 +8265,7 @@ function smartNodeToolbarHtml(node){
     const gridLabel = imageCount > 1 ? '宫格拼接' : '宫格切分';
     const actions = [
         {key:'preview', icon:'eye', label:'预览', enabled:kind === 'image' || kind === 'video'},
+        {key:'reve', icon:'wand-2', label:tr('canvas.reveEdit', 'Reve 智能修图'), enabled:canEditImage},
         {key:'crop', icon:'crop', label:'裁剪', enabled:canEditImage},
         {key:'outpaint', icon:'expand', label:'扩图', enabled:canEditImage},
         {key:'mask', icon:'brush', label:'遮罩', enabled:canEditImage},
@@ -8305,6 +8306,10 @@ function runSmartNodeToolbarAction(nodeId, action){
     selectedImage = {nodeId, index};
     if(action === 'download'){
         downloadPreviewFile(node.images?.[index] || item);
+        return;
+    }
+    if(action === 'reve'){
+        if(window.CanvasReve) window.CanvasReve.open(nodeId);
         return;
     }
     if(action === 'canvas'){
@@ -19104,5 +19109,11 @@ window.onload = async () => {
     await loadAssetLibrary();
     await loadCanvas();
     syncApiKindToggleVisibility();
+    window.nodes = nodes;
+    window.selected = selectedIds;
+    window.render = render;
+    window.scheduleSave = scheduleSave;
+    window.pushUndo = pushUndo;
+    window.connections = connections;
     render();
 };

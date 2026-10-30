@@ -6567,7 +6567,8 @@ function renderNode(node){
         const label = { queued:'排队中', running:'运行中', done:'完成', failed:'失败' }[node.runStatus] || '';
         return `<span class="node-run-status ${node.runStatus}"><span class="dot"></span>${escapeHtml(label)}${node._cascadeIdx?' '+node._cascadeIdx:''}</span>`;
     })() : '';
-    const isImageNode = node.type === 'image' && node.url && mediaKindForNode(node) === 'image' && !isVideoUrl(node.url) && !isAudioUrl(node.url);
+    const isImageNode = (node.type === 'image' && node.url && mediaKindForNode(node) === 'image' && !isVideoUrl(node.url) && !isAudioUrl(node.url))
+        || (node.type === 'output' && (node.selectedOutputUrl || (Array.isArray(node.outputs) && node.outputs.length > 0) || (Array.isArray(node.urls) && node.urls.length > 0) || node.url));
     const reveBtnHtml = isImageNode
         ? `<button type="button" class="node-reve-btn" title="${tr('canvas.reveEdit', 'Reve 智能修图')}"><i data-lucide="wand-2" class="w-3.5 h-3.5"></i></button>`
         : '';
