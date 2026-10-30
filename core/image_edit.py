@@ -470,6 +470,9 @@ async def execute_canvas_edit(
                 raise
             providers = load_api_providers()
             provider = next(
+                (p for p in providers if p.get("enabled", True) and p.get("protocol") == "openai" and req_model in (p.get("image_models") or [])),
+                None,
+            ) or next(
                 (p for p in providers if p.get("enabled", True) and req_model in (p.get("image_models") or [])),
                 None,
             )
@@ -481,9 +484,14 @@ async def execute_canvas_edit(
         req_model = str(payload.get("model") or "").strip()
         if req_model:
             for p in providers:
-                if p.get("enabled", True) and req_model in (p.get("image_models") or []):
+                if p.get("enabled", True) and p.get("protocol") == "openai" and req_model in (p.get("image_models") or []):
                     provider = p
                     break
+            if not provider:
+                for p in providers:
+                    if p.get("enabled", True) and req_model in (p.get("image_models") or []):
+                        provider = p
+                        break
         if not provider:
             for p in providers:
                 if p.get("enabled", True) and p.get("image_models"):
@@ -499,13 +507,21 @@ async def execute_canvas_edit(
         models = provider.get("image_models") or []
         model = models[0] if models else "qwen-image-edit"
 
+    edit_mode = detect_edit_dispatch_mode(provider, model)
     proto = str((provider or {}).get("protocol") or (provider or {}).get("id") or "").lower()
     pid = str((provider or {}).get("id") or "").lower()
     multi_proto = {"codex", "gemini-cli", "jimeng", "volcengine", "runninghub", "apimart", "pollinations", "gemini"}
 
     task_id = f"reve_{int(time.time())}_{uuid.uuid4().hex[:8]}"
 
-    if callable(cloud_dispatcher) and (proto in multi_proto or pid in multi_proto or pid == "modelscope"):
+    should_dispatch_cloud = (
+        callable(cloud_dispatcher)
+        and edit_mode not in ("bfl-fill", "openai-edits")
+        and (proto in multi_proto or pid in multi_proto)
+        and proto != "openai"
+    )
+
+    if should_dispatch_cloud:
         augmented_prompt = build_edit_prompt_with_region(effective_prompt, region, orig_w, orig_h)
         guide_src = annotate_visual_region_guide(img_bytes, mask_bytes) if mask_bytes else img_bytes
         out_bytes = await cloud_dispatcher({

@@ -3902,6 +3902,12 @@ html[data-studio-scale="off"].studio-scale-managed .toolbar.scale-expanded .tool
 .reve-slider-pill { display: flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 500; color: #94a3b8; padding: 0 4px; }
 .reve-slider-pill input[type="range"] { width: 48px; height: 4px; accent-color: var(--accent, #c97b5a); cursor: pointer; }
 
+.node.cv-offscreen,
+.image-node.cv-offscreen {
+    content-visibility: auto;
+    contain: layout style paint;
+}
+
 
 
 

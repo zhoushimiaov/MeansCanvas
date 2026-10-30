@@ -1351,6 +1351,7 @@ function applyViewport(){
     scheduleCanvasImageResolutionSync(nodesEl, 120);
     renderSelectionHub();
     if(typeof updateRemoteCursorsScreenPosition === 'function') updateRemoteCursorsScreenPosition();
+    window.CanvasVirtualizer?.scheduleSync({ containerEl: nodesEl, nodeSelector: '.node', nodes, viewport, boardEl: board, selectedIds: window.selected });
 }
 function estimatedNodeRect(n){
     const el = nodesEl?.querySelector?.(`.node[data-id="${CSS.escape(n.id)}"]`);
@@ -6369,6 +6370,7 @@ function render(){
     syncCanvasSelectedImageResolution(nodesEl);
     measureCanvasOriginalImageNodes(nodesEl);
     refreshOutputTimer();
+    window.CanvasVirtualizer?.scheduleSync({ containerEl: nodesEl, nodeSelector: '.node', nodes, viewport, boardEl: board, selectedIds: window.selected });
 }
 function refreshNodes(ids=[]){
     const uniqueIds = [...new Set((ids || []).filter(Boolean))];
@@ -6400,6 +6402,7 @@ function refreshNodes(ids=[]){
     syncCanvasSelectedImageResolution(nodesEl);
     measureCanvasOriginalImageNodes(nodesEl);
     refreshOutputTimer();
+    window.CanvasVirtualizer?.scheduleSync({ containerEl: nodesEl, nodeSelector: '.node', nodes, viewport, boardEl: board, selectedIds: window.selected });
 }
 function refreshRunNodes(node, out=null){
     refreshNodes([node?.id, out?.id]);

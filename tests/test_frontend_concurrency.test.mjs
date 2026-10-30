@@ -394,3 +394,82 @@ test('canvas-reve: multi-node target resolution and regional edit payload genera
   assert.equal(fetchBody.preserve_outside, true);
   assert.equal(mockWindow.nodes[0].url, '/output/edited.png', 'In-place mode must update source node url');
 });
+
+test('canvas-virtualizer: frustum culling, exemption rules and DOM sync', () => {
+  const virtJs = fs.readFileSync('static/js/canvas-virtualizer.js', 'utf-8');
+  assert.ok(virtJs.includes('CanvasVirtualizer'), 'CanvasVirtualizer should exist in canvas-virtualizer.js');
+
+  const mockWindow = { addEventListener: () => {} };
+  new Function('window', virtJs)(mockWindow);
+  const CV = mockWindow.CanvasVirtualizer;
+  assert.ok(CV, 'window.CanvasVirtualizer must be exported');
+
+  // 1. Frustum calculation & exemption rules
+  const nodes = [
+    { id: 'near1', x: 100, y: 100, w: 200, h: 200 },
+    { id: 'far1', x: 5000, y: 5000, w: 200, h: 200 },
+    { id: 'far-selected', x: 6000, y: 6000, w: 200, h: 200 },
+    { id: 'far-running', x: 7000, y: 7000, w: 200, h: 200, running: true },
+    { id: 'far-group', x: 8000, y: 8000, w: 200, h: 200, type: 'smart-group' },
+  ];
+  // With 5 nodes (< 36), all nodes should be visible
+  const smallVisible = CV.computeVisibleNodeIds({
+    nodes,
+    viewport: { x: 0, y: 0, scale: 1 },
+    boardRect: { width: 1000, height: 800 },
+    minNodesToCull: 36,
+  });
+  assert.equal(smallVisible.size, 5, 'All nodes kept when total count < minNodesToCull');
+
+  // With minNodesToCull: 2
+  const visible = CV.computeVisibleNodeIds({
+    nodes,
+    viewport: { x: 0, y: 0, scale: 1 },
+    boardRect: { width: 1000, height: 800 },
+    marginPx: 200,
+    selectedIds: new Set(['far-selected']),
+    minNodesToCull: 2,
+  });
+  assert.ok(visible.has('near1'), 'Near node must be visible');
+  assert.ok(!visible.has('far1'), 'Far unselected node must be culled');
+  assert.ok(visible.has('far-selected'), 'Selected node must be exempt from culling');
+  assert.ok(visible.has('far-running'), 'Running node must be exempt from culling');
+  assert.ok(visible.has('far-group'), 'Group node must be exempt from culling');
+
+  // 2. DOM Sync & video pause
+  let videoPaused = false;
+  const mockElements = [
+    { dataset: { id: 'near1' }, classList: new Set(), querySelector: () => null },
+    { dataset: { id: 'far1' }, classList: new Set(), querySelector: (sel) => sel === 'video' ? { paused: false, pause: () => { videoPaused = true; } } : null },
+  ];
+  mockElements.forEach(el => {
+    const s = el.classList;
+    el.classList = {
+      has: (c) => s.has(c),
+      contains: (c) => s.has(c),
+      add: (c) => s.add(c),
+      remove: (c) => s.delete(c),
+    };
+  });
+  const mockContainer = {
+    querySelectorAll: () => mockElements,
+  };
+
+  const stats = CV.syncDomVirtualization({
+    containerEl: mockContainer,
+    nodes,
+    viewport: { x: 0, y: 0, scale: 1 },
+    boardEl: { getBoundingClientRect: () => ({ width: 1000, height: 800 }) },
+    selectedIds: new Set(),
+    minNodesToCull: 2,
+  });
+
+  assert.equal(stats.culled, 1);
+  assert.ok(mockElements[1].classList.contains('cv-offscreen'), 'Far node element must have cv-offscreen class');
+  assert.ok(!mockElements[0].classList.contains('cv-offscreen'), 'Near node element must not have cv-offscreen class');
+  assert.equal(videoPaused, true, 'Offscreen video playback must be paused');
+
+  // 3. isConnectionVisible
+  assert.equal(CV.isConnectionVisible({ from: 'near1', to: 'far1' }, visible), true, 'Connection touching visible node is visible');
+  assert.equal(CV.isConnectionVisible({ from: 'far1', to: 'far2' }, new Set(['near1'])), false, 'Connection with both ends off-screen is hidden');
+});

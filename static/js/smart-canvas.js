@@ -2137,6 +2137,7 @@ function applyViewport(){
     shell.style.backgroundPosition = '0 0';
     renderMinimap();
     scheduleSmartImageResolutionSync(world, 120);
+    window.CanvasVirtualizer?.scheduleSync({ containerEl: world, nodeSelector: '.image-node', nodes, viewport, boardEl: shell, selectedIds: selectedIds });
 }
 function screenToWorld(event){
     const rect = shell.getBoundingClientRect();
@@ -8575,6 +8576,7 @@ function render(){
     syncSmartSelectedImageResolution(world);
     measureSmartNodeImages();
     refreshRunTimerPills();
+    window.CanvasVirtualizer?.scheduleSync({ containerEl: world, nodeSelector: '.image-node', nodes, viewport, boardEl: shell, selectedIds: selectedIds });
 }
 function measureSmartNodeImages(){
     world.querySelectorAll('.image-node img,.image-node video').forEach(imgEl => {

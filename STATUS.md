@@ -1,5 +1,28 @@
 # STATUS - 开卷画布 · MeansCanvas (原 Infinite-Canvas) 功能迭代
 
+## 2026-10-30 区域修图 2.0 (Regional Inpainting 2.0) 与 视口虚拟化引擎 (Viewport Virtualization)
+
+- **实施计划**：`docs/superpowers/plans/2026-10-30-regional-inpainting-and-viewport-virtualization.md`
+- **Task 1: 后端像素级锁定羽化合成、自由涂抹蒙版解码与多协议分发 (`core/image_edit.py`, `routers/online_image.py`, `tests/test_regional_inpainting_v2.py`)**：
+  - 新增 `decode_mask_data_url()`：解码 Base64 PNG 蒙版并按目标尺寸双线性缩放与高斯羽化；
+  - 新增 `composite_regional_edit()`：基于羽化 Alpha 蒙版实施精确合成，选区外像素位级保持原始图像不变；
+  - 新增 `annotate_visual_region_guide()`：绘制高对比轮廓引导视觉大模型局部重绘；
+  - `execute_canvas_edit()` 与 `CanvasEditRequest` 扩展支持 `mask_data_url`、`feather_radius`、`reference_image_url`、`preserve_outside` 与非 OpenAI 协议云端分发回调 (`cloud_dispatcher`)。
+- **Task 2: 前端区域修图 2.0 交互系统升级 (`static/js/canvas-reve.js`, `static/css/canvas.css`, `static/js/canvas.js`, `static/smart-canvas.html`, `static/js/smart-canvas.js`, `static/js/i18n/*.js`)**：
+  - 支持多节点适配 (`resolveNodeTarget`)：统一支持 Classic `image` 节点、Classic `output` 产物节点与 Smart Canvas `smart-image` 节点；
+  - 交互式选区与蒙版覆盖层：支持可调尺寸选区框 (`box`)、自由画笔涂抹 (`brush`)、橡皮擦 (`erase`) 与一键清空 (`clear`)；
+  - 快捷操作条新增：笔刷大小调节、羽化半径滑块、局部参考图上传/缩略图预览、原位替换 (`inplace`) 与派生新节点 (`new`) 模式切换；
+  - 补齐中英文国际化语言包并接入 Smart Canvas 浮动工具栏与 `Shift+E` 快捷键。
+- **Task 3: 双画布共享视口虚拟化引擎 (`static/js/canvas-virtualizer.js`, `static/canvas.html`, `static/smart-canvas.html`, `static/js/canvas.js`, `static/js/smart-canvas.js`, `static/css/canvas.css`, `static/css/smart-canvas.css`)**：
+  - 构建独立空间视锥剔除引擎 `window.CanvasVirtualizer`，提供 `computeVisibleNodeIds()`、`syncDomVirtualization()` 与 rAF 节流 `scheduleSync()`；
+  - 豁免规则保证选中节点、运行中节点、父级分组节点永不剔除；小画布 (< 36 节点) 零开销穿透；
+  - 视口外节点应用 `.cv-offscreen` (`content-visibility: auto; contain: layout style paint;`) 并自动暂停屏幕外 `<video>` 播放；
+  - 接入 Classic Canvas 与 Smart Canvas 的 `applyViewport()` 和 `render()` 全生命周期。
+- **门禁与测试闭环**：
+  - 381 项 Python 测试全部通过 (`pytest tests/`)；
+  - 11 项前端并发与虚拟化单元测试全部通过 (`node --test tests/test_frontend_concurrency.test.mjs`)；
+  - 4 项 CI 门禁（文件行数 Ratchet、排版美学与字重、SSRF AST 防护、i18n 完整性）100% 绿灯。
+
 ## 2026-10-29 代码审查修复
 
 - 修复媒体跨源重定向转发 Provider 凭据，以及同毫秒/时间回拨导致画布旧版本覆盖的问题。
